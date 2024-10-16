@@ -2,6 +2,8 @@ import anthropic
 import re
 import sys
 import os
+import subprocess
+import tempfile
 
 def read_file(file_path):
     """Read and return the contents of a file."""
@@ -21,10 +23,12 @@ def read_file(file_path):
 def write_file(file_path, content):
     """Write content to a file."""
     try:
-        with open(file_path, 'w') as file:
+        os.makedirs('outputs', exist_ok=True)
+        full_path = os.path.join('outputs', file_path)
+        with open(full_path, 'w') as file:
             file.write(content)
     except IOError:
-        print(f"Error: Unable to write to file '{file_path}'.")
+        print(f"Error: Unable to write to file '{full_path}'.")
         sys.exit(1)
 
 def extract_between_tags(tag: str, string: str, strip: bool = False) -> list[str]:
@@ -92,10 +96,30 @@ def generate_prompt(client, model_name, metaprompt, task):
 
     return message
 
+def get_large_input(prompt):
+    """Open a text editor in a new Gnome terminal for large text input."""
+    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt') as temp_file:
+        temp_file.write(f"# {prompt}\n# Write your input below this line.\n# Save and close the editor when you're done.\n\n")
+        temp_file_path = temp_file.name
+
+    editor = os.environ.get('EDITOR', 'nano')  # Use nano as default if EDITOR is not set
+    subprocess.run(['gnome-terminal', '--', editor, temp_file_path])
+
+    input("Press Enter when you've finished editing...")
+
+    with open(temp_file_path, 'r') as file:
+        content = file.read()
+
+    os.unlink(temp_file_path)  # Delete the temporary file
+
+    # Remove comments and leading/trailing whitespace
+    lines = content.split('\n')
+    return '\n'.join(line.strip() for line in lines if not line.strip().startswith('#') and line.strip())
+
 def main():
     # Read API key and metaprompt
     ANTHROPIC_API_KEY = read_file('ANTHROPIC_API_KEY.txt')
-    print(f"API Key: {ANTHROPIC_API_KEY[:10]}...") # Print first 10 characters of the key
+    print(f"API Key: {ANTHROPIC_API_KEY[:10]}...")  # Print first 10 characters of the key
     metaprompt = read_file('metaprompt.txt')
 
     MODEL_NAME = "claude-3-5-sonnet-20240620"
@@ -118,7 +142,8 @@ def main():
     # Prompt user for variable values
     variable_values = {}
     for variable in variables:
-        variable_values[variable] = input(f"Enter value for variable {variable}: ")
+        print(f"\nEnter value for variable {variable}:")
+        variable_values[variable] = get_large_input(f"Enter value for {variable}")
 
     # Replace variables in prompt
     prompt_with_variables = extracted_prompt_template
